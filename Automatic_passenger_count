@@ -1,0 +1,166 @@
+#include <LiquidCrystal_I2C.h>
+#include <Servo.h>
+#include <SoftwareSerial.h>
+
+// ----- Pin Definitions -----
+// Ultrasonic Sensor (HC-SR04)
+#define TRIG_PIN 8
+#define ECHO_PIN 9
+
+// Buzzer (3-pin)
+#define BUZZER_PIN 2
+
+// Servo Motor (for automatic door simulation)
+#define SERVO_PIN 5
+
+// GSM Module using SoftwareSerial (SIM800L or SIM900)
+SoftwareSerial gsmSerial(10, 11); // RX, TX for GSM
+
+// I2C LCD (16x2) with address 0x27
+LiquidCrystal_I2C lcd(0x27, 16, 2); // Adjust address if needed
+
+// Servo object declaration
+Servo doorServo;
+
+// Bluetooth Module HC-05 (RX, TX)
+SoftwareSerial btSerial(6, 7); // RX, TX for HC-05
+
+void setup()
+{
+    // Set up ultrasonic sensor pins
+    pinMode(TRIG_PIN, OUTPUT);
+    pinMode(ECHO_PIN, INPUT);
+
+    // Set up buzzer pin
+    pinMode(BUZZER_PIN, OUTPUT);
+    digitalWrite(BUZZER_PIN, LOW); // Turn buzzer off initially
+
+    // Attach servo to its pin and initialize it to 'closed' position (0 degrees)
+    doorServo.attach(SERVO_PIN);
+    doorServo.write(0);
+
+    // Start serial communications for debugging and for GSM module
+    Serial.begin(9600);
+    gsmSerial.begin(9600);
+    btSerial.begin(9600); // HC-05 default baud rate
+
+    // Initialize LCD and turn on its backlight
+    lcd.begin(16, 2);
+    lcd.backlight();
+
+    // Print a welcome message on LCD with typewriter effect
+    printMessage("System Ready!");
+    delay(2000);
+    lcd.clear();
+}
+
+void loop()
+{
+    // Bluetooth Command Control
+    if (btSerial.available())
+    {
+        char command = btSerial.read();
+        if (command == 'O')
+        {                        // Open door
+            doorServo.write(90); // Open
+            lcd.clear();
+            lcd.setCursor(0, 0);
+            lcd.print("Door Opened");
+        }
+        else if (command == 'C')
+        {                       // Close door
+            doorServo.write(0); // Close
+            lcd.clear();
+            lcd.setCursor(0, 0);
+            lcd.print("Door Closed");
+        }
+        else if (command == 'S')
+        {                        // Stop the servo movement
+            doorServo.write(45); // Neutral
+            lcd.clear();
+            lcd.setCursor(0, 0);
+            lcd.print("Servo Stopped");
+        }
+    }
+
+    // Read distance from the ultrasonic sensor
+    int distance = readUltrasonic();
+
+    // Display the distance on the LCD's first line
+    lcd.setCursor(0, 0);
+    lcd.print("Dist: ");
+    lcd.print(distance);
+    lcd.print("cm ");
+
+    // Accident detection logic: if the distance is less than 10 cm, assume an accident has occurred
+    if (distance < 10)
+    {
+        // Activate the buzzer
+        digitalWrite(BUZZER_PIN, HIGH);
+
+        // Clear the LCD and print the accident alert message using typewriter effect
+        lcd.clear();
+        printMessage("Accident! SMS Sent!");
+
+        // Simulate door opening with the servo motor
+        openDoor();
+
+        // Send an SMS alert via the GSM module
+        sendSMS();
+
+        // Allow the alert conditions to persist briefly (5 seconds), then reset the system
+        delay(5000);
+        digitalWrite(BUZZER_PIN, LOW);
+        lcd.clear();
+    }
+
+    delay(1000); // Update interval
+}
+
+// ------------------ Function Definitions ------------------
+
+// Function to read distance using the ultrasonic sensor
+int readUltrasonic()
+{
+    digitalWrite(TRIG_PIN, LOW);
+    delayMicroseconds(2);
+    digitalWrite(TRIG_PIN, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(TRIG_PIN, LOW);
+    long duration = pulseIn(ECHO_PIN, HIGH);
+    int dist = duration * 0.034 / 2; // Convert duration to distance in cm
+    return dist;
+}
+
+// Function to simulate the door opening using the servo motor
+void openDoor()
+{
+    doorServo.write(90); // Rotate the servo to 90 degrees (door open)
+    delay(3000);         // Keep the door open for 3 seconds
+    doorServo.write(0);  // Rotate back to 0 degrees (door closed)
+}
+
+// Function to send an SMS using the GSM module
+void sendSMS()
+{
+    gsmSerial.println("AT+CMGF=1"); // Set the GSM module to SMS text mode
+    delay(100);
+    gsmSerial.println("AT+CMGS=\"+91XXXXXXXXXX\""); // Replace with your phone number
+    delay(100);
+    gsmSerial.println("Alert: Accident detected. Immediate help required!");
+    delay(100);
+    gsmSerial.write(26); // Send the Ctrl+Z command to indicate the end of the SMS
+    delay(1000);
+}
+
+// Function to print a message on the LCD one character at a time (typewriter effect)
+void printMessage(String message)
+{
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    for (int i = 0; i < message.length(); i++)
+    {
+        lcd.print(message.charAt(i));
+        delay(100); // Delay between characters (100 ms)
+    }
+}
